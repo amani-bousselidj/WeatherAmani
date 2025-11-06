@@ -52,7 +52,7 @@ class بوت_الذكاء_الاصطناعي:
                 total_tokens INTEGER DEFAULT 0,
                 total_requests INTEGER DEFAULT 0,
                 last_request TIMESTAMP,
-                daily_budget INTEGER DEFAULT 10000  # حدود استهلاك يومية
+                daily_budget INTEGER DEFAULT 10000
             )
         ''')
         
