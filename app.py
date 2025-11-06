@@ -1,12 +1,11 @@
 import os
 from flask import Flask, request
 from telegram import Update
-from production_bot import AdvancedBot, البوت_الإنتاجي
+from production_bot import AdvancedBot
 
 
 app = Flask(__name__)
 bot = AdvancedBot()
-البوت = البوت_الإنتاجي()
 PORT = int(os.environ.get("PORT", 5000))
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
