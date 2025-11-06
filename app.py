@@ -4,7 +4,7 @@ import logging
 import asyncio
 from aiohttp import web
 from telegram import Update
-from bot import AdvancedBot   # أو production_bot import AdvancedBot حسب اسم ملفك
+from production_bot import AdvancedBot   # أو production_bot import AdvancedBot حسب اسم ملفك
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
