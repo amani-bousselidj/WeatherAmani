@@ -19,7 +19,11 @@ def health():
 @app.route(f"/webhook/{TOKEN}", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(), bot.application.bot)
-    bot.application.process_update(update)
+
+    # تشغيل الدالة غير المتزامنة بالطريقة الصحيحة
+    import asyncio
+    asyncio.run(bot.application.process_update(update))
+
     return {"ok": True}
 
 @app.route("/")
