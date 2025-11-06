@@ -1,28 +1,30 @@
-# app.py
-from flask import Flask, request, jsonify
 import os
-from production_bot import TelegramAdvancedBot
+from flask import Flask, request
 from telegram import Update
+from bot import AdvancedBot
 
 app = Flask(__name__)
-bot = TelegramAdvancedBot()
+bot = AdvancedBot()
 
-@app.route("/")
-def home():
-    return "🤖 البوت يعمل!"
+PORT = int(os.environ.get("PORT", 5000))
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-@app.route("/webhook/<token>", methods=["POST"])
-def webhook(token):
-    if token == bot.token:
-        update = Update.de_json(request.get_json(), bot.application.bot)
-        bot.application.process_update(update)
-        return jsonify({"status": "ok"})
-    return jsonify({"status": "error"}), 403
-
+# Health check
 @app.route("/health")
 def health():
-    return jsonify({"status": "healthy"})
+    return {"status": "healthy"}
+
+# Webhook endpoint
+@app.route(f"/webhook/{TOKEN}", methods=["POST"])
+def webhook():
+    update = Update.de_json(request.get_json(), bot.application.bot)
+    bot.application.process_update(update)
+    return {"ok": True}
+
+@app.route("/")
+def index():
+    return "🤖 البوت يعمل!"
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    bot.run_webhook(port=PORT, url_path=TOKEN, webhook_url=WEBHOOK_URL)
