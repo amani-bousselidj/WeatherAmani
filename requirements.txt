@@ -1,8 +1,8 @@
 python-telegram-bot==22.5
-Flask==2.3.3
-requests==2.32.0
-python-dotenv==1.0.1
-psutil==5.9.6
-schedule==1.2.0
-gunicorn==21.2.0
-waitress
+aiohttp>=3.8
+requests
+python-dotenv
+psutil
+schedule
+gunicorn              # اختياري إن احتجت لكن لن تستخدمه إذا ستشغّل python app.py
+uvloop               # اختياري لتحسين الأداء في بيئات asyncio

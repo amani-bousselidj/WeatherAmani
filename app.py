@@ -1,90 +1,69 @@
-# app.py  -- for Render (webhook using Flask + clean asyncio lifecycle)
+# app.py
 import os
 import logging
-import signal
 import asyncio
-from flask import Flask, request, jsonify
+from aiohttp import web
 from telegram import Update
-from production_bot import AdvancedBot   # تأكدي من اسم الفئة والمسار
+from bot import AdvancedBot   # أو production_bot import AdvancedBot حسب اسم ملفك
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
-
-# إنشاء بوت - لا تطلبي run_polling/run_webhook هنا
-bot = AdvancedBot()
-
-PORT = int(os.environ.get("PORT", 5000))
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")  # يجب أن يكون مُعيّنًا
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")   # مثال: https://your-app.onrender.com/webhook
+PORT = int(os.environ.get("PORT", 10000))
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # e.g. https://your-app.onrender.com
 
 if not TOKEN:
-    raise RuntimeError("TELEGRAM_BOT_TOKEN must be set in environment variables")
+    raise RuntimeError("TELEGRAM_BOT_TOKEN غير موجود في المتغيرات البيئية")
 
-# ===== create & set a dedicated event loop for the Flask process =====
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
+if not WEBHOOK_URL:
+    logger.warning("WEBHOOK_URL غير مضبوطة. ستحتاج لضبطها لتعيين webhook للـ Telegram")
 
-# ===== initialize Application (but do NOT call start()) =====
-# initialize gives you a ready-to-use `bot.application.bot` and handlers,
-# but avoids launching background fetchers/tasks that start with start()
-async def _init_app():
-    await bot.application.initialize()   # prepares internal resources
-    # do NOT call `await bot.application.start()` — avoids background fetcher
-    logger.info("✅ Bot.application initialized (no background fetcher started)")
+# أنشئ كائن البوت (لا تقوم بتهيئته بعد)
+bot = AdvancedBot(TOKEN)
+app = web.Application()
 
-loop.run_until_complete(_init_app())
+# Route: health
+async def health(request):
+    return web.json_response({"status": "healthy"})
 
-# ===== graceful shutdown coroutine =====
-async def _shutdown_coro():
-    logger.info("🛑 shutdown coroutine started: stopping and shutting down Application...")
+# Route: webhook receiver
+async def webhook_handler(request):
     try:
-        # If you ever started job queue or other components, stop them first:
-        # await bot.application.stop()   # not called earlier, but keep for safety
-        await bot.application.shutdown()   # release handlers, cancel tasks cleanly
-        logger.info("✅ application.shutdown() completed")
-    except Exception as e:
-        logger.exception("❌ Exception during application.shutdown(): %s", e)
-    finally:
-        logger.info("Stopping event loop")
-        # stop the loop from within itself
-        loop.call_soon_threadsafe(loop.stop)
-
-# signal handler that schedules the coroutine on our loop
-def _on_signal(sig, frame):
-    logger.info("Signal %s received — scheduling shutdown", sig)
-    # use run_coroutine_threadsafe to schedule on the loop from signal handler
-    asyncio.run_coroutine_threadsafe(_shutdown_coro(), loop)
-
-# register handlers for Render (SIGTERM) and local Ctrl-C (SIGINT)
-signal.signal(signal.SIGTERM, _on_signal)
-signal.signal(signal.SIGINT, _on_signal)
-
-# ===== webhook endpoint: accept update and schedule processing =====
-@app.route(f"/webhook/{TOKEN}", methods=["POST"])
-def webhook():
-    try:
-        data = request.get_json(force=True)
+        data = await request.json()
         update = Update.de_json(data, bot.application.bot)
-        # Schedule processing on our loop; return HTTP 200 immediately.
-        loop.create_task(bot.application.process_update(update))
-        return jsonify({"ok": True})
+        # process_update هو coroutine -> ننتظر تنفيذه داخل نفس loop
+        await bot.application.process_update(update)
+        return web.json_response({"ok": True})
     except Exception as e:
-        logger.exception("Webhook handling failed: %s", e)
-        return jsonify({"ok": False, "error": str(e)}), 500
+        logger.exception("خطأ في معالجة webhook: %s", e)
+        return web.json_response({"ok": False, "error": str(e)}, status=500)
 
-@app.route("/health")
-def health():
-    return jsonify({"status": "healthy"})
+# startup/shutdown hooks
+async def on_startup(app_):
+    logger.info("on_startup: initializing bot...")
+    await bot.initialize()
+    # ضبط الويبهوك عند startup (إذا تم تحديد WEBHOOK_URL)
+    if WEBHOOK_URL:
+        webhook_target = f"{WEBHOOK_URL}/webhook/{TOKEN}"
+        try:
+            await bot.application.bot.set_webhook(webhook_target)
+            logger.info("Webhook set -> %s", webhook_target)
+        except Exception as e:
+            logger.exception("فشل في set_webhook: %s", e)
 
-@app.route("/")
-def index():
-    return "🤖 Bot running with robust webhook lifecycle"
+async def on_shutdown(app_):
+    logger.info("on_shutdown: stopping bot...")
+    await bot.shutdown()
 
-# ===== main: we don't call bot.application.run_webhook() here =====
-# Render runs gunicorn which imports this module and serves `app`.
-# Only for local debug:
+# ربط المسارات
+app.router.add_get("/health", health)
+app.router.add_post(f"/webhook/{TOKEN}", webhook_handler)
+app.router.add_get("/", lambda req: web.Response(text="🤖 البوت يعمل!"))
+
+# تسجيل hooks
+app.on_startup.append(on_startup)
+app.on_shutdown.append(on_shutdown)
+
 if __name__ == "__main__":
-    logger.info("Starting Flask dev server (for debug only)")
-    app.run(host="0.0.0.0", port=PORT)
+    web.run_app(app, host="0.0.0.0", port=PORT)
