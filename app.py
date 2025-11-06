@@ -11,13 +11,16 @@ logger = logging.getLogger(__name__)
 
 # إعداد Flask
 app = Flask(__name__)
+
+# إعداد البوت
 bot = AdvancedBot()
 
+# البيئة
 PORT = int(os.environ.get("PORT", 5000))
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-# ✅ نُهيئ التطبيق مرة واحدة فقط
+# ✅ إنشاء حلقة asyncio واحدة
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
@@ -26,9 +29,10 @@ async def init_bot():
     await bot.application.start()
     logger.info("✅ Telegram Bot initialized and started successfully")
 
+# تشغيل التهيئة لمرة واحدة عند بدء السيرفر
 loop.run_until_complete(init_bot())
 
-# Health Check
+# Health check
 @app.route("/health")
 def health():
     return {"status": "healthy"}
@@ -39,7 +43,6 @@ def webhook():
     try:
         data = request.get_json(force=True)
         update = Update.de_json(data, bot.application.bot)
-        # نستخدم create_task داخل event loop الرئيسي
         loop.create_task(bot.application.process_update(update))
         return {"ok": True}
     except Exception as e:
@@ -50,11 +53,7 @@ def webhook():
 def index():
     return "🤖 البوت الآن يعمل بثبات على Render!"
 
+# ✅ لا نشغّل run_webhook() إطلاقًا
 if __name__ == "__main__":
-    bot.application.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=TOKEN,
-        webhook_url=f"{WEBHOOK_URL}/{TOKEN}"
-    )
-    logger.info(f"🚀 Bot is running on port {PORT} with webhook URL {WEBHOOK_URL}/{TOKEN}")
+    app.run(host="0.0.0.0", port=PORT)
+    logger.info(f"🚀 Flask server running on port {PORT}")
