@@ -6,3 +6,5 @@ psutil
 schedule
 gunicorn              # اختياري إن احتجت لكن لن تستخدمه إذا ستشغّل python app.py
 uvloop               # اختياري لتحسين الأداء في بيئات asyncio
+Flask==3.0.3
+httpx==0.27.0
