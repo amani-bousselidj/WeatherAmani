@@ -1,67 +1,61 @@
-# app.py
+# 📁 app.py
 import os
 import logging
-import asyncio
 from aiohttp import web
 from telegram import Update
-from production_bot import AdvancedBot   # أو production_bot import AdvancedBot حسب اسم ملفك
+from production_bot import بوت_الذكاء_الاصطناعي
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# تحميل المتغيرات
 PORT = int(os.environ.get("PORT", 10000))
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # e.g. https://your-app.onrender.com
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 
+# تأكيد وجود البيانات الأساسية
 if not TOKEN:
-    raise RuntimeError("TELEGRAM_BOT_TOKEN غير موجود في المتغيرات البيئية")
-
+    raise RuntimeError("❌ TELEGRAM_BOT_TOKEN غير موجود في .env")
 if not WEBHOOK_URL:
-    logger.warning("WEBHOOK_URL غير مضبوطة. ستحتاج لضبطها لتعيين webhook للـ Telegram")
+    raise RuntimeError("❌ WEBHOOK_URL غير موجود في .env")
 
-# أنشئ كائن البوت (لا تقوم بتهيئته بعد)
-bot = AdvancedBot(TOKEN)
+# إنشاء كائن البوت
+bot_instance = بوت_الذكاء_الاصطناعي()
 app = web.Application()
 
-# Route: health
+# ✅ نقطة اختبار
 async def health(request):
-    return web.json_response({"status": "healthy"})
+    return web.json_response({"status": "healthy", "bot": "AI Telegram Bot"})
 
-# Route: webhook receiver
+# ✅ Webhook endpoint
 async def webhook_handler(request):
     try:
         data = await request.json()
-        update = Update.de_json(data, bot.application.bot)
-        # process_update هو coroutine -> ننتظر تنفيذه داخل نفس loop
-        await bot.application.process_update(update)
+        update = Update.de_json(data, bot_instance.application.bot)
+        await bot_instance.application.process_update(update)
         return web.json_response({"ok": True})
     except Exception as e:
-        logger.exception("خطأ في معالجة webhook: %s", e)
+        logger.exception("❌ خطأ في webhook: %s", e)
         return web.json_response({"ok": False, "error": str(e)}, status=500)
 
-# startup/shutdown hooks
+# ✅ تشغيل عند بدء التشغيل
 async def on_startup(app_):
-    logger.info("on_startup: initializing bot...")
-    await bot.initialize()
-    # ضبط الويبهوك عند startup (إذا تم تحديد WEBHOOK_URL)
-    if WEBHOOK_URL:
-        webhook_target = f"{WEBHOOK_URL}/webhook/{TOKEN}"
-        try:
-            await bot.application.bot.set_webhook(webhook_target)
-            logger.info("Webhook set -> %s", webhook_target)
-        except Exception as e:
-            logger.exception("فشل في set_webhook: %s", e)
+    logger.info("🚀 بدء تشغيل البوت...")
+    await bot_instance.application.initialize()
+    webhook_target = f"{WEBHOOK_URL}/webhook/{TOKEN}"
+    await bot_instance.application.bot.set_webhook(webhook_target)
+    logger.info(f"✅ تم ضبط الـ Webhook على: {webhook_target}")
 
+# ✅ عند الإيقاف
 async def on_shutdown(app_):
-    logger.info("on_shutdown: stopping bot...")
-    await bot.shutdown()
+    logger.info("🛑 إيقاف البوت...")
+    await bot_instance.application.shutdown()
 
-# ربط المسارات
+# ✅ ربط المسارات
+app.router.add_get("/", lambda req: web.Response(text="🤖 البوت يعمل!"))
 app.router.add_get("/health", health)
 app.router.add_post(f"/webhook/{TOKEN}", webhook_handler)
-app.router.add_get("/", lambda req: web.Response(text="🤖 البوت يعمل!"))
 
-# تسجيل hooks
 app.on_startup.append(on_startup)
 app.on_shutdown.append(on_shutdown)
 
