@@ -1,6 +1,7 @@
 import os
 import asyncio
 import logging
+import signal
 from flask import Flask, request
 from telegram import Update
 from production_bot import AdvancedBot
@@ -9,18 +10,13 @@ from production_bot import AdvancedBot
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# إعداد Flask
 app = Flask(__name__)
-
-# إعداد البوت
 bot = AdvancedBot()
 
-# البيئة
 PORT = int(os.environ.get("PORT", 5000))
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-# ✅ إنشاء حلقة asyncio واحدة
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
@@ -29,15 +25,29 @@ async def init_bot():
     await bot.application.start()
     logger.info("✅ Telegram Bot initialized and started successfully")
 
-# تشغيل التهيئة لمرة واحدة عند بدء السيرفر
+# ✅ تشغيل التهيئة مرة واحدة
 loop.run_until_complete(init_bot())
 
-# Health check
+# ✅ إيقاف نظيف عند shutdown
+def shutdown_handler(*_):
+    logger.info("🛑 Shutting down bot gracefully...")
+    try:
+        loop.run_until_complete(bot.application.stop())
+        loop.run_until_complete(bot.application.shutdown())
+    except Exception as e:
+        logger.error(f"Error while shutting down: {e}")
+    finally:
+        loop.stop()
+        logger.info("✅ Bot stopped cleanly")
+
+# تسجيل إشارات النظام (SIGTERM من Render)
+signal.signal(signal.SIGTERM, shutdown_handler)
+signal.signal(signal.SIGINT, shutdown_handler)
+
 @app.route("/health")
 def health():
     return {"status": "healthy"}
 
-# ✅ Webhook endpoint
 @app.route(f"/webhook/{TOKEN}", methods=["POST"])
 def webhook():
     try:
@@ -53,7 +63,5 @@ def webhook():
 def index():
     return "🤖 البوت الآن يعمل بثبات على Render!"
 
-# ✅ لا نشغّل run_webhook() إطلاقًا
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT)
-    logger.info(f"🚀 Flask server running on port {PORT}")
