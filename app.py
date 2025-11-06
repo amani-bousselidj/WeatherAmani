@@ -3,7 +3,7 @@ import asyncio
 from flask import Flask, request
 from telegram import Update
 from production_bot import AdvancedBot
-
+from telegram.ext import Application
 app = Flask(__name__)
 bot = AdvancedBot()
 PORT = int(os.environ.get("PORT", 5000))
@@ -22,12 +22,12 @@ def health():
 @app.route(f"/webhook/{TOKEN}", methods=["POST"])
 def webhook():
     try:
-        update = Update.de_json(request.get_json(), bot.application.bot)
-        asyncio.run(bot.application.process_update(update))
+        update = Update.de_json(request.get_json(force=True), bot.application.bot)
+        bot.application.create_task(bot.application.process_update(update))
+        return {"ok": True}
     except Exception as e:
         app.logger.error(f"Webhook error: {e}")
         return {"ok": False, "error": str(e)}, 500
-    return {"ok": True}
 
 @app.route("/")
 def index():
