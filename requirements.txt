@@ -4,3 +4,4 @@ requests==2.32.0
 python-dotenv==1.0.1
 psutil==5.9.6
 schedule==1.2.0
+gunicorn==21.2.0
