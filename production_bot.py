@@ -8,8 +8,10 @@ import base64
 from datetime import datetime, timedelta
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 
+print("TELEGRAM_BOT_TOKEN:", os.getenv("TELEGRAM_BOT_TOKEN"))
+print("GROQ_API_KEY:", os.getenv("GROQ_API_KEY"))
 load_dotenv()
 
 class بوت_الذكاء_الاصطناعي:
