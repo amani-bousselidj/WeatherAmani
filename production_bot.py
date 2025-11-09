@@ -15,10 +15,11 @@ load_dotenv()
 class بوت_الذكاء_الاصطناعي:
     def __init__(self):
         self.token = os.getenv('TELEGRAM_BOT_TOKEN')
-        self.openai_key = os.getenv('OPENAI_API_KEY')
-        self.openai_model = os.getenv('OPENAI_MODEL', 'gpt-3.5-turbo')
+        self.grok_key = os.getenv('GROK_API_KEY')
+        self.grok_model = os.getenv('GROK_MODEL', 'grok-beta')
+
         
-        if not self.token or not self.openai_key:
+        if not self.token or not self.grok_key:
             raise ValueError("❌ التوكنات المطلوبة غير موجودة!")
         
         self.application = Application.builder().token(self.token).build()
@@ -52,7 +53,7 @@ class بوت_الذكاء_الاصطناعي:
                 total_tokens INTEGER DEFAULT 0,
                 total_requests INTEGER DEFAULT 0,
                 last_request TIMESTAMP,
-                daily_budget INTEGER DEFAULT 10000
+                daily_budget INTEGER DEFAULT 10000  # حدود استهلاك يومية
             )
         ''')
         
@@ -141,8 +142,7 @@ class بوت_الذكاء_الاصطناعي:
             سجل_المحادثة = self.جلب_سجل_المحادثة(user_id)
             
             # إرسال الطلب إلى OpenAI
-            الرد, tokens_used = await self.إرسال_طلب_openai(السؤال, سجل_المحادثة, وضع)
-            
+            الرد, tokens_used = await self.إرسال_طلب_grok(السؤال, سجل_المحادثة, وضع) 
             if الرد:
                 # حفظ المحادثة في قاعدة البيانات
                 self.حفظ_المحادثة(user_id, "user", السؤال, tokens_used['prompt'])
@@ -227,60 +227,52 @@ class بوت_الذكاء_الاصطناعي:
             logging.error(f"خطأ في جلب سجل المحادثة: {e}")
             return []
     
-    async def إرسال_طلب_openai(self, السؤال: str, سجل_المحادثة: list, وضع: str):
-        """إرسال طلب إلى OpenAI API"""
+    async def إرسال_طلب_grok(self, السؤال: str, سجل_المحادثة: list, وضع: str):
+        """إرسال طلب إلى Grok API من xAI"""
         try:
-            # بناء رسائل النظام
             رسائل_النظام = self.بناء_رسالة_النظام(وضع)
-            
-            # بناء المحادثة
             محادثة = [{"role": "system", "content": رسائل_النظام}]
-            
-            # إضافة سجل المحادثة
             محادثة.extend(سجل_المحادثة)
-            
-            # إضافة السؤال الجديد
             محادثة.append({"role": "user", "content": السؤال})
-            
-            # إعداد الطلب
+
             headers = {
-                "Authorization": f"Bearer {self.openai_key}",
+                "Authorization": f"Bearer {self.grok_key}",
                 "Content-Type": "application/json"
             }
-            
+
             data = {
-                "model": self.openai_model,
+                "model": self.grok_model,
                 "messages": محادثة,
                 "max_tokens": 1000,
-                "temperature": 0.7,
+                "temperature": 0.7
             }
-            
-            # إرسال الطلب
+
             response = requests.post(
-                "https://api.openai.com/v1/chat/completions",
+                "https://api.x.ai/v1/chat/completions",
                 headers=headers,
                 json=data,
                 timeout=30
             )
-            
+
             if response.status_code == 200:
                 result = response.json()
                 الرد = result['choices'][0]['message']['content']
+
                 tokens_used = {
-                    'prompt': result['usage']['prompt_tokens'],
-                    'completion': result['usage']['completion_tokens'],
-                    'total': result['usage']['total_tokens']
+                    'prompt': result.get('usage', {}).get('prompt_tokens', 0),
+                    'completion': result.get('usage', {}).get('completion_tokens', 0),
+                    'total': result.get('usage', {}).get('total_tokens', 0)
                 }
-                
+
                 return الرد, tokens_used
             else:
-                logging.error(f"OpenAI API error: {response.status_code} - {response.text}")
+                logging.error(f"Grok API error: {response.status_code} - {response.text}")
                 return None, None
-                
+
         except Exception as e:
-            logging.error(f"خطأ في طلب OpenAI: {e}")
+            logging.error(f"خطأ في طلب Grok: {e}")
             return None, None
-    
+
     def بناء_رسالة_النظام(self, وضع: str) -> str:
         """بناء رسالة النظام بناءً على الوضع"""
         if وضع == "سؤال":
@@ -306,7 +298,7 @@ class بوت_الذكاء_الاصطناعي:
                 INSERT INTO محادثات_الذكاء 
                 (user_id, role, content, tokens_used, model_used) 
                 VALUES (?, ?, ?, ?, ?)
-            ''', (user_id, role, content, tokens, self.openai_model))
+            ''', (user_id, role, content, tokens, self.grok_model))
             
             self.conn.commit()
         except Exception as e:
