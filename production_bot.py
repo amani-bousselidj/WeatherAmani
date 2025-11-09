@@ -17,8 +17,8 @@ load_dotenv()
 class بوت_الذكاء_الاصطناعي:
     def __init__(self):
         self.token = os.getenv('TELEGRAM_BOT_TOKEN')
-        self.grok_key = os.getenv('GROK_API_KEY')
-        self.grok_model = os.getenv('GROK_MODEL', 'grok-beta')
+        self.grok_key = os.getenv('GROQ_API_KEY')
+        self.grok_model = os.getenv('GROQ_MODEL', 'grok-beta')
 
         
         if not self.token or not self.grok_key:
