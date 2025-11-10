@@ -145,7 +145,7 @@ class بوت_الذكاء_الاصطناعي:
             headers = {"Authorization": f"Bearer {self.hf_key}", "Content-Type": "application/json"}
             data = {"inputs": prompt, "parameters": {"max_new_tokens": 300, "temperature": 0.7}}
             async with httpx.AsyncClient(timeout=30) as client:
-                response = await client.post(f"https://api-inference.huggingface.co/models/{self.hf_model}",
+                response = await client.post(f"https://router.huggingface.co/hf-inference/{self.hf_model}",
                              headers=headers, json=data)
 
                 if response.status_code == 200:
