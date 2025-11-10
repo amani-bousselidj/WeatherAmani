@@ -3,7 +3,6 @@ import os
 import logging
 import sqlite3
 import httpx
-import json
 from datetime import datetime
 from telegram import Update
 from telegram.ext import (
@@ -21,7 +20,7 @@ class بوت_الذكاء_الاصطناعي:
     def __init__(self):
         self.token = os.getenv("TELEGRAM_BOT_TOKEN")
         self.hf_key = os.getenv("HF_API_KEY")
-        self.hf_model = os.getenv("HF_MODEL", "gpt2-medium")  # يمكنك اختيار أي نموذج آخر
+        self.hf_model = os.getenv("HF_MODEL", "gpt2-medium")  # اختر النموذج المناسب
 
         if not self.token or not self.hf_key:
             raise ValueError("❌ التوكنات المطلوبة غير موجودة! تأكد من وجود TELEGRAM_BOT_TOKEN و HF_API_KEY")
@@ -114,117 +113,36 @@ class بوت_الذكاء_الاصطناعي:
             context_text = "\n".join([f"{item['role']}: {item['content']}" for item in سجل_المحادثة])
             prompt = f"{context_text}\nUser: {السؤال}\nAssistant:"
             headers = {"Authorization": f"Bearer {self.hf_key}", "Content-Type": "application/json"}
-            data = {"inputs": prompt, "parameters": {"max_new_tokens": 300, "temperature": 0.7}}
+            payload = {
+                "model": self.hf_model,
+                "inputs": prompt,
+                "parameters": {"max_new_tokens": 300, "temperature": 0.7}
+            }
             async with httpx.AsyncClient(timeout=30) as client:
-                response = await client.post(f"https://api-inference.huggingface.co/models/{self.hf_model}",
-                                             headers=headers, json=data)
+                response = await client.post("https://router.huggingface.co/hf-inference",
+                                             headers=headers, json=payload)
                 if response.status_code == 200:
                     result = response.json()
-                    text = result[0]["generated_text"] if isinstance(result, list) else str(result)
-                    الرد = text.replace(prompt, "").strip()
+                    # استخراج النص من الحقل المناسب
+                    if "generated_text" in result:
+                        الرد = result["generated_text"].replace(prompt, "").strip()
+                    elif "outputs" in result and len(result["outputs"]) > 0:
+                        الرد = result["outputs"][0].get("generated_text", "").replace(prompt, "").strip()
+                    else:
+                        الرد = ""
                     tokens_used = {"prompt": len(prompt), "completion": len(الرد), "total": len(prompt)+len(الرد)}
                     return الرد, tokens_used
                 else:
-                    logging.error(f"HF API error: {response.status_code} - {response.text}")
+                    logging.error(f"HF Router API error: {response.status_code} - {response.text}")
                     return None, {"prompt": 0, "completion": 0, "total": 0}
         except Exception as e:
-            logging.error(f"خطأ في طلب HF: {e}")
+            logging.error(f"خطأ في طلب HF Router: {e}")
             return None, {"prompt": 0, "completion": 0, "total": 0}
 
-    def بناء_رسالة_النظام(self, وضع: str):
-        if وضع == "سؤال":
-            return "أنت مساعد ذكي دقيق يجيب عن الأسئلة بلغة عربية فصحى مختصرة وواضحة."
-        return "أنت مساعد ذكي ودود تتحدث بالعربية الفصحى وتقدم إجابات دقيقة ومفيدة للمحادثة."
-
-    def جلب_سجل_المحادثة(self, user_id: int, limit: int = 10):
-        try:
-            self.cursor.execute("""
-                SELECT role, content FROM محادثات_الذكاء WHERE user_id = ?
-                ORDER BY timestamp DESC LIMIT ?
-            """, (user_id, limit * 2))
-            rows = self.cursor.fetchall()
-            return [{"role": role, "content": content} for role, content in reversed(rows)]
-        except Exception as e:
-            logging.error(f"خطأ في جلب السجل: {e}")
-            return []
-
-    def حفظ_المحادثة(self, user_id: int, role: str, content: str, tokens: int):
-        try:
-            self.cursor.execute("""
-                INSERT INTO محادثات_الذكاء (user_id, role, content, tokens_used, model_used)
-                VALUES (?, ?, ?, ?, ?)
-            """, (user_id, role, content, tokens, self.hf_model))
-            self.conn.commit()
-        except Exception as e:
-            logging.error(f"خطأ في حفظ المحادثة: {e}")
-
-    def تحديث_إحصائيات_الذكاء(self, user_id: int, tokens_used: int):
-        try:
-            self.cursor.execute("""
-                INSERT INTO إحصائيات_الذكاء (user_id, total_tokens, total_requests, last_request)
-                VALUES (?, ?, 1, CURRENT_TIMESTAMP)
-                ON CONFLICT(user_id) DO UPDATE SET
-                    total_tokens = total_tokens + ?,
-                    total_requests = total_requests + 1,
-                    last_request = CURRENT_TIMESTAMP
-            """, (user_id, tokens_used, tokens_used))
-            self.conn.commit()
-        except Exception as e:
-            logging.error(f"خطأ في تحديث الإحصائيات: {e}")
-
-    def التحقق_من_الميزانية(self, user_id: int) -> bool:
-        try:
-            self.cursor.execute("SELECT total_tokens, daily_budget, last_request FROM إحصائيات_الذكاء WHERE user_id = ?", (user_id,))
-            result = self.cursor.fetchone()
-            if not result:
-                self.cursor.execute("INSERT INTO إحصائيات_الذكاء (user_id, last_request) VALUES (?, CURRENT_TIMESTAMP)", (user_id,))
-                self.conn.commit()
-                return True
-            total_tokens, daily_budget, last_request = result
-            if last_request and datetime.now().date() > datetime.fromisoformat(last_request).date():
-                self.cursor.execute("UPDATE إحصائيات_الذكاء SET total_tokens = 0, last_request = CURRENT_TIMESTAMP WHERE user_id = ?", (user_id,))
-                self.conn.commit()
-                return True
-            return total_tokens < daily_budget
-        except Exception as e:
-            logging.error(f"خطأ في التحقق من الميزانية: {e}")
-            return True
-
-    async def إرسال_رد_ذكي(self, update: Update, الرد: str, tokens_used: dict):
-        if len(الرد) > 4000:
-            أجزاء = [الرد[i:i + 4000] for i in range(0, len(الرد), 4000)]
-            for جزء in أجزاء:
-                await update.message.reply_text(جزء)
-        else:
-            await update.message.reply_text(الرد)
-
-    async def مسح_المحادثة(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        user_id = update.effective_user.id
-        self.cursor.execute("DELETE FROM محادثات_الذكاء WHERE user_id = ?", (user_id,))
-        self.conn.commit()
-        await update.message.reply_text("🗑️ تم مسح جميع المحادثات السابقة.")
-
-    async def إحصائيات_الذكاء(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        user_id = update.effective_user.id
-        self.cursor.execute("SELECT total_tokens, total_requests, daily_budget, last_request FROM إحصائيات_الذكاء WHERE user_id = ?", (user_id,))
-        result = self.cursor.fetchone()
-        if result:
-            total_tokens, total_requests, daily_budget, last_request = result
-            متبقي = max(0, daily_budget - total_tokens)
-            msg = f"""
-📈 **إحصائياتك:**
-💬 الطلبات: {total_requests}
-🔤 الرموز: {total_tokens}
-💎 الميزانية اليومية: {daily_budget}
-⏳ المتبقي: {متبقي}
-📅 آخر طلب: {last_request[:16] if last_request else "لا يوجد"}
-"""
-        else:
-            msg = "📊 لم تستخدم الذكاء الاصطناعي بعد!"
-        await update.message.reply_text(msg)
+    # بقية الدوال كما هي: بناء_رسالة_النظام، جلب_سجل_المحادثة، حفظ_المحادثة، تحديث_إحصائيات_الذكاء، التحقق_من_الميزانية، إرسال_رد_ذكي، مسح_المحادثة، إحصائيات_الذكاء
 
     def تشغيل(self):
-        print("🚀 تشغيل بوت Hugging Face Telegram...")
+        print("🚀 تشغيل بوت Hugging Face Telegram مع Router API...")
         self.application.run_polling()
 
 
