@@ -2,9 +2,9 @@
 import os
 import logging
 import sqlite3
-import requests
+import httpx
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -20,11 +20,11 @@ load_dotenv()
 class بوت_الذكاء_الاصطناعي:
     def __init__(self):
         self.token = os.getenv("TELEGRAM_BOT_TOKEN")
-        self.openai_key = os.getenv("OPENAI_API_KEY")
-        self.openai_model = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
+        self.hf_key = os.getenv("HF_API_KEY")
+        self.hf_model = os.getenv("HF_MODEL", "gpt2-medium")  # يمكنك اختيار أي نموذج آخر
 
-        if not self.token or not self.openai_key:
-            raise ValueError("❌ التوكنات المطلوبة غير موجودة! تأكد من وجود TELEGRAM_BOT_TOKEN و OPENAI_API_KEY")
+        if not self.token or not self.hf_key:
+            raise ValueError("❌ التوكنات المطلوبة غير موجودة! تأكد من وجود TELEGRAM_BOT_TOKEN و HF_API_KEY")
 
         self.application = Application.builder().token(self.token).build()
         self.إعداد_قاعدة_بيانات_الذكاء()
@@ -97,7 +97,7 @@ class بوت_الذكاء_الاصطناعي:
         await update.message.chat.send_action(action="typing")
         try:
             سجل_المحادثة = self.جلب_سجل_المحادثة(user_id)
-            الرد, tokens_used = await self.إرسال_طلب_openai(السؤال, سجل_المحادثة, وضع)
+            الرد, tokens_used = await self.إرسال_طلب_hf(السؤال, سجل_المحادثة, وضع)
             if الرد:
                 self.حفظ_المحادثة(user_id, "user", السؤال, tokens_used["prompt"])
                 self.حفظ_المحادثة(user_id, "assistant", الرد, tokens_used["completion"])
@@ -109,40 +109,26 @@ class بوت_الذكاء_الاصطناعي:
             logging.error(f"خطأ في الذكاء الاصطناعي: {e}")
             await update.message.reply_text("⚠️ حدث خطأ غير متوقع. حاول لاحقًا.")
 
-    async def إرسال_طلب_openai(self, السؤال: str, سجل_المحادثة: list, وضع: str):
+    async def إرسال_طلب_hf(self, السؤال: str, سجل_المحادثة: list, وضع: str):
         try:
-            system_msg = self.بناء_رسالة_النظام(وضع)
-            messages = [{"role": "system", "content": system_msg}]
-            messages.extend(سجل_المحادثة)
-            messages.append({"role": "user", "content": السؤال})
-
-            headers = {
-                "Authorization": f"Bearer {self.openai_key}",
-                "Content-Type": "application/json"
-            }
-
-            data = {
-                "model": self.openai_model,
-                "messages": messages,
-                "max_tokens": 1000,
-                "temperature": 0.7
-            }
-
-            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data)
-            if response.status_code == 200:
-                result = response.json()
-                reply = result["choices"][0]["message"]["content"]
-                tokens_used = {
-                    "prompt": result.get("usage", {}).get("prompt_tokens", 0),
-                    "completion": result.get("usage", {}).get("completion_tokens", 0),
-                    "total": result.get("usage", {}).get("total_tokens", 0),
-                }
-                return reply, tokens_used
-            else:
-                logging.error(f"OpenAI API error: {response.status_code} - {response.text}")
-                return None, {"prompt": 0, "completion": 0, "total": 0}
+            context_text = "\n".join([f"{item['role']}: {item['content']}" for item in سجل_المحادثة])
+            prompt = f"{context_text}\nUser: {السؤال}\nAssistant:"
+            headers = {"Authorization": f"Bearer {self.hf_key}", "Content-Type": "application/json"}
+            data = {"inputs": prompt, "parameters": {"max_new_tokens": 300, "temperature": 0.7}}
+            async with httpx.AsyncClient(timeout=30) as client:
+                response = await client.post(f"https://api-inference.huggingface.co/models/{self.hf_model}",
+                                             headers=headers, json=data)
+                if response.status_code == 200:
+                    result = response.json()
+                    text = result[0]["generated_text"] if isinstance(result, list) else str(result)
+                    الرد = text.replace(prompt, "").strip()
+                    tokens_used = {"prompt": len(prompt), "completion": len(الرد), "total": len(prompt)+len(الرد)}
+                    return الرد, tokens_used
+                else:
+                    logging.error(f"HF API error: {response.status_code} - {response.text}")
+                    return None, {"prompt": 0, "completion": 0, "total": 0}
         except Exception as e:
-            logging.error(f"خطأ في طلب OpenAI: {e}")
+            logging.error(f"خطأ في طلب HF: {e}")
             return None, {"prompt": 0, "completion": 0, "total": 0}
 
     def بناء_رسالة_النظام(self, وضع: str):
@@ -167,7 +153,7 @@ class بوت_الذكاء_الاصطناعي:
             self.cursor.execute("""
                 INSERT INTO محادثات_الذكاء (user_id, role, content, tokens_used, model_used)
                 VALUES (?, ?, ?, ?, ?)
-            """, (user_id, role, content, tokens, self.openai_model))
+            """, (user_id, role, content, tokens, self.hf_model))
             self.conn.commit()
         except Exception as e:
             logging.error(f"خطأ في حفظ المحادثة: {e}")
@@ -238,7 +224,7 @@ class بوت_الذكاء_الاصطناعي:
         await update.message.reply_text(msg)
 
     def تشغيل(self):
-        print("🚀 تشغيل بوت OpenAI Telegram...")
+        print("🚀 تشغيل بوت Hugging Face Telegram...")
         self.application.run_polling()
 
 
